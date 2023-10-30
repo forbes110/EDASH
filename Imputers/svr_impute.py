@@ -5,7 +5,7 @@ import pandas as pd
 
 @dataclass
 class SVRImputer:
-    data: np.ndarray
+    data: None
     
     def __post_init__(self):
         self._data = self.translation(self.data)
@@ -83,6 +83,9 @@ class SVRImputer:
         
         complete_rows, incomplete_rows = [], []
         incomplete_rows = np.where(np.isnan(self._data).any(axis=1))[0]
+        print(f' There are {len(incomplete_rows)} imcomplete rows in data')
+        
+        
         complete_rows = np.where(~np.isnan(self._data).any(axis=1))[0]
         return np.array(complete_rows), np.array(incomplete_rows)
 

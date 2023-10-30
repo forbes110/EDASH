@@ -43,9 +43,23 @@ class FCMeans:
                 dummy = 0.0
                 
                 for k in range(self.num_clusters):
-                    dummy += (numerator / np.linalg.norm(self.data[i] - self.centroids[k]))** (2 / (self.m - 1))
+                    
+                    denominator = (np.linalg.norm(self.data[i] - self.centroids[k]))
+                    # dummy += (numerator / denominator)** (2 / (self.m - 1))
+                    if denominator == 0:
+                        dummy += (numerator / (denominator+1e-5) )** (2 / (self.m - 1))
                 
-                self.membership_matrix[i][j] = 1.0 / dummy 
+                        # print('dummy:', dummy)
+
+                    else:
+                        dummy += (numerator / denominator)** (2 / (self.m - 1))
+                        # print('dummy:', dummy)
+                        
+                # self.membership_matrix[i][j] = 1.0 / dummy 
+                if dummy == 0:
+                    self.membership_matrix[i][j] = 1.0 / (dummy+1e-5) 
+                else:
+                    self.membership_matrix[i][j] = 1.0 / dummy 
                 
     def update_centroids(self):
         for i in range(self.num_clusters):
@@ -85,7 +99,7 @@ class FCMImputer:
         TODO
             no complete data control
     '''
-    data: np.ndarray
+    data: None
     num_clusters: int
     
     # weiting factor
@@ -94,6 +108,8 @@ class FCMImputer:
     # acceptable error
     epsilon: float = 1e-4
     max_iter: int = 100
+    detection = None
+    
     
     
     def __post_init__(self):
@@ -103,6 +119,8 @@ class FCMImputer:
     def translation(self, x):
         if type(x) == pd.DataFrame:
             return x.to_numpy()
+        else:
+            return x
     def impute(self):
         '''
         Let the centriods of fuzzy cmeans result be c_j for j... n_clusters, 
@@ -126,17 +144,17 @@ class FCMImputer:
         # with trained fcm, inference the implete data without the missing features
         for incomplete_row in self.incomplete_rows:
             
-            incomplete_data = self._data[incomplete_row].copy()
-            missing_features_ids = np.where(np.isnan(incomplete_data))[0]
+            _incomplete_row = self._data[incomplete_row].copy()
+            missing_features_ids = np.where(np.isnan(_incomplete_row))[0]
             
-            valid_data = np.delete(incomplete_data, missing_features_ids)
+            valid_data = np.delete(_incomplete_row, missing_features_ids)
             valid_centroids = self.processing_centroids(centroids, missing_features_ids)
             
             for missing_feature_id in missing_features_ids:
                 inferenced_feature = fcm.inference(valid_data, valid_centroids, missing_feature_id)
-                incomplete_data[missing_feature_id] = inferenced_feature
+                _incomplete_row[missing_feature_id] = inferenced_feature
             
-            inferenced_rows.append(incomplete_data)
+            inferenced_rows.append(_incomplete_row)
         imputed_data = self.merge_inferenced_rows(inferenced_rows)
         
         return imputed_data  
@@ -166,7 +184,7 @@ class FCMImputer:
         eliminate rows with all of features missing
         '''
         
-            # rows with all nan's need to be removed.
+        # rows with all nan's need to be removed.
         all_nan_rows = np.where(np.isnan(self._data).all(axis=1))[0]
         if len(all_nan_rows) != 0:
             print(f' There are {len(all_nan_rows)} rows in data with all Nan entries, the imputed data wouldn\'t contain the rows')
@@ -175,7 +193,8 @@ class FCMImputer:
         
         complete_rows, incomplete_rows = [], []
         incomplete_rows = np.where(np.isnan(self._data).any(axis=1))[0]
-        print(f' There are {len(incomplete_rows)} imcomplete rows in data')
+        if self.detection == True:
+            print(f' There are {len(incomplete_rows)} imcomplete rows in data')
         
         
         complete_rows = np.where(~np.isnan(self._data).any(axis=1))[0]
