@@ -9,6 +9,8 @@ import seaborn as sns
 import matplotlib.pylab as plt
 from sklearn.metrics import r2_score
 import scipy.stats as stats
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
 
 @dataclass
 class continuous:
@@ -45,7 +47,7 @@ class continuous:
         # result, _ = integrate.quad(lambda x: self._gaussion(x, data_list_1)* np.log(self._gaussion(x, data_list_1)/self._gaussion(x, data_list_2)), -30,30)
         return 1/2*(np.log(std_2**2/std_1**2) + std_1**2/std_2**2 + (np.mean(data_list_1)-np.mean(data_list_2))**2/std_2**2 -1)
 
-    def js_entropy(self, data_list_1, data_list_2):
+    def js_divergence(self, data_list_1, data_list_2):
         M = [(x + y) / 2 for x, y in zip(data_list_1, data_list_2)]
         return 1/2*(self.relative_entropy(data_list_1, M)+ self.relative_entropy(data_list_2, M)), self.relative_entropy(data_list_1, data_list_2), self.relative_entropy(data_list_2, data_list_1)
 
@@ -63,14 +65,24 @@ class continuous:
         # cov_matrix = np.cov(data_list_1, data_list_2)
         # return (1/2)*(n*np.log(2*np.pi) + n + np.log(det(cov_matrix)))
 
-    def mutual_information(self, data_list_1, data_list_2):
-        ''' 
-        dependence of data_list_1 and data_list_2 
-        '''
-        H_x = self.entropy(data_list_1)
-        H_y = self.entropy(data_list_2)
-        H_xy = self.joint_entropy_2(data_list_1, data_list_2)
-        return H_x + H_y - H_xy
+    def multi_collinearity(self, df):
+        vif = pd.DataFrame()
+        vif["features"] = df.columns 
+        df_filled = df.fillna(0)
+        vif['VIF'] = [variance_inflation_factor(df_filled.values, i) for i in range(df_filled.shape[1])]
+        vif = vif.sort_values(by='VIF', ascending=False)
+        vif.set_index('features', inplace=True)
+        display(vif)
+        
+    def missing_rate(self, df):
+        missing = df.isnull().sum()
+        missing_rate = missing / len(df)
+        total_missing_rate = missing.sum() / (len(df) * len(df.columns))
+        
+        result = pd.DataFrame({'missing_rate': missing_rate})
+        display(result)
+        print(total_missing_rate)
+        return total_missing_rate
 
     def basic_info(self, col_list):
         # mean, var, corr_matrix, Q1-Q3 of each column
@@ -84,6 +96,7 @@ class continuous:
         kurtosis = stats.kurtosis(col_list)
         return min, max, avg, q1, q3, std, skewness, kurtosis
 
+
     def compare_base(self, df, method = "zero"):
         "when need to compare with missing data, consider drop all missing value or take the case as 0"
         if method == 'drop':
@@ -93,22 +106,23 @@ class continuous:
 
     def pair_plot(self, df_before, df_after):
         da, db = df_after.copy(), df_before.copy()
-        da['**impute**'] = True
-        db['**impute**'] = False
+        da['imputed'] = True
+        db['imputed'] = False
         combined_df = pd.concat([db, da], ignore_index=True)
         sns.set(style='ticks')
-        plot = sns.pairplot(combined_df, kind='reg', hue='**impute**', diag_kind='hist', diag_kws={'alpha': 0.5}, plot_kws={'scatter_kws': {'alpha': 0.3}})
+        plot = sns.pairplot(combined_df, kind='reg', hue='imputed', diag_kind='hist', diag_kws={'alpha': 0.5}, plot_kws={'scatter_kws': {'alpha': 0.3}})
         plt.show()
 
-
+    def simplification(self, predictions, lables):
+        pass
     def comparison(self, df_before, df_after, method='all'):
         """
         Compare some metrics to show difference percentage of imputed before/after
         """
         # entropy_pair_list = []
-        # js_entropy_list = []
+        # js_divergence_list = []
         df_entropy = {}
-        df_js_entropy = {}
+        js_divergence = {}
         df_basic_before = {}
         df_basic_after = {}
 
@@ -118,27 +132,30 @@ class continuous:
             min_before, max_before, avg_before, q1_before, q3_before, std_before, skewness_before, kurtosis_before = self.basic_info(df_before[col])
             min_after, max_after, avg_after, q1_after, q3_after, std_after, skewness_after, kurtosis_after = self.basic_info(df_after[col])
             df_entropy.update({col:[entropy_before, entropy_after, abs(entropy_before-entropy_after), self.percentage_difference(entropy_before, entropy_after)]})
-            js, kl_12, kl_21 = self.js_entropy(df_before[col], df_after[col])
-            df_js_entropy.update({col: [js, kl_12, kl_21]})
+            js, kl_12, kl_21 = self.js_divergence(df_before[col], df_after[col])
+            js_divergence.update({col: [js, kl_12, kl_21]})
             df_basic_before.update({col:[min_before, max_before, avg_before, q1_before, q3_before, std_before, skewness_before, kurtosis_before]})
             df_basic_after.update({col:[min_after, max_after, avg_after, q1_after, q3_after, std_after, skewness_after, kurtosis_after]})
 
         df_entropy = pd.DataFrame(df_entropy, index=['entropy_before', 'entropy_after', 'difference', 'percentage_difference'])
         df_entropy.columns.name = 'Entropy'
 
-        df_js_entropy = pd.DataFrame(df_js_entropy, index=['js_entropy', 'KL(1||2)', 'KL(2||1)'])
-        df_js_entropy.columns.name = 'KL-Diverge'
+        js_divergence = pd.DataFrame(js_divergence, index=['js_divergence', 'KL(1||2)', 'KL(2||1)'])
+        js_divergence.columns.name = 'KL-Divergence'
 
         df_basic_before = pd.DataFrame(df_basic_before, index=['min', 'max', 'avg', 'q1', 'q3', 'std', 'skewness', 'kurtosis'])
         df_basic_after = pd.DataFrame(df_basic_after, index=['min', 'max', 'avg', 'q1', 'q3', 'std', 'skewness', 'kurtosis'])
         df_basic_before.columns.name = 'Basic Info Before'
         df_basic_after.columns.name = 'Basic Info After'
+        
+        print('\n*** Missing Rate ***')
+        miss = self.missing_rate(df_before)
 
         print('\n*** Entropy ***')
         display(df_entropy.applymap(lambda x: format(x, '.2e')))
 
-        print('\n*** KL Divergence(Relatice Entropy) ***')
-        display(df_js_entropy.applymap(lambda x: format(x, '.2e')))
+        print('\n*** KL Divergence(Relative Entropy) ***')
+        display(js_divergence.applymap(lambda x: format(x, '.2e')))
 
         print('\n*** Basic Info ***')
         display(df_basic_before.applymap(lambda x: format(x, '.2e')))
@@ -157,9 +174,30 @@ class continuous:
         ax = sns.heatmap(cov_mat_2, annot=True, cmap='coolwarm')
         plt.title('Covariance Matrix After')
         plt.show()
+        
+        print('\n*** Multi-Collinearity ***')
+        print('\n--- Before ---')
+        self.multi_collinearity(df_before)
+        print('\n--- After ---')
+        self.multi_collinearity(df_after)
+        
 
         print('\n*** Pairplot ***')
         self.pair_plot(df_before, df_after)
 
     def percentage_difference(self, a, b):
         return (b-a)/a
+    
+
+''' example input:
+
+    import pandas as pd
+    import numpy as np
+
+    df = pd.DataFrame(np.random.randn(1000, 7), columns=['var1', 'var2', 'var3', 'var4', 'var5', 'var6', 'var7'])
+    tmp = pd.DataFrame(np.random.randn(100, 7), columns=['var1', 'var2', 'var3', 'var4', 'var5', 'var6', 'var7'])
+
+    con = continuous()
+    my_frame = con.comparison(df, tmp)
+
+'''
